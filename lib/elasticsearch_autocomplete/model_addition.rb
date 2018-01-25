@@ -38,8 +38,19 @@ module ElasticsearchAutocomplete
 
         self.ac_mode_config = ElasticsearchAutocomplete::MODES[ac_opts[:mode]]
 
-        self.ac_search_attrs = ac_opts[:search_fields] || (ac_opts[:localized] ? I18n.available_locales.map { |l| "#{ac_attr}_#{l}" } : [ac_attr])
-        self.ac_search_fields = ac_search_attrs.map { |attr| ac_mode_config.values.map { |prefix| "#{prefix}_#{attr}" } }.flatten
+        self.ac_search_attrs = ac_opts[:search_fields] ||
+          if ac_opts[:localized]
+            (I18n.try(:es_available_locales) || I18n.available_locales).map { |l| "#{ac_attr}_#{l}" }
+          else
+            [ac_attr]
+          end
+        self.ac_search_fields =
+          ac_search_attrs.flat_map do |attr|
+            ac_mode_config.values.map do |prefix|
+              ["#{attr}.#{prefix}_#{attr}".to_sym, "#{prefix}_#{attr}".to_sym]
+            end.flatten
+          end
+        self.ac_search_fields.push(*self.ac_search_attrs)
 
         define_ac_index(ac_opts[:mode]) unless options[:skip_settings]
       end
@@ -49,11 +60,12 @@ module ElasticsearchAutocomplete
       def ac_search(query, options={})
         options.reverse_merge!({per_page: 50, search_fields: ac_search_fields})
 
-        if query.size.zero?
-          query = {match_all: {}}
-        else
-          query = {multi_match: {query: query, fields: options[:search_fields]}}
-        end
+        query =
+          if query.size.zero?
+            {match_all: {}}
+          else
+            {multi_match: {query: query, fields: options[:search_fields]}}
+          end
 
         sort = []
         if options[:geo_order] && options[:with]
@@ -65,22 +77,25 @@ module ElasticsearchAutocomplete
         end
         sort << {options[:order] => options[:sort_mode] || 'asc'} if options[:order].present?
 
-        filter = {}
-        if options[:with].present?
-          filter[:and] = {filters: options[:with].map { |k, v| {terms: {k => ElasticsearchAutocomplete.val_to_terms(v)}} }}
+        filter = []
+        options[:with].to_a.compact.each do |k, v|
+          filter << {terms: {k => ElasticsearchAutocomplete.val_to_terms(v)}}
         end
-        if options[:without].present?
-          filter[:and] = {filters: []}
-          options[:without].each do |k, v|
-            filter[:and][:filters] << {not: {terms: {k => ElasticsearchAutocomplete.val_to_terms(v, true)}} }
-          end
+
+        options[:without].to_a.compact.each do |k, v|
+          filter << {not: {terms: {k => ElasticsearchAutocomplete.val_to_terms(v, true)}} }
         end
 
         per_page = options[:per_page] || 50
         page = options[:page].presence || 1
-        from = per_page.to_i * (page.to_i - 1)
+        # from = per_page.to_i * (page.to_i - 1)
 
-        __elasticsearch__.search query: query, sort: sort, filter: filter, size: per_page, from: from
+        if filter.present?
+          query[:bool]= {filter: filter}
+          query.delete(:match_all)
+        end
+
+        __elasticsearch__.search(query: query, sort: sort).paginate(page: page, size: per_page)
       end
 
       def define_ac_index(mode=:word)
@@ -96,27 +111,27 @@ module ElasticsearchAutocomplete
       end
 
       def ac_index_config(attr, mode=:word)
-        defaults = {type: 'string', search_analyzer: 'ac_search', include_in_all: false}
+        defaults = {type: :text, search_analyzer: :ac_search}
         fields = case mode
                    when :word
                      {
-                         attr => {type: 'string'},
-                         "#{ac_mode_config[:base]}_#{attr}" => defaults.merge(index_analyzer: 'ac_edge_ngram'),
-                         "#{ac_mode_config[:word]}_#{attr}" => defaults.merge(index_analyzer: 'ac_edge_ngram_word')
+                         attr => {type: :text},
+                         "#{ac_mode_config[:base]}_#{attr}" => defaults.merge(analyzer: :ac_edge_ngram),
+                         "#{ac_mode_config[:word]}_#{attr}" => defaults.merge(analyzer: :ac_edge_ngram_word)
                      }
                    when :phrase
                      {
-                         attr => {type: 'string'},
-                         "#{ac_mode_config[:base]}_#{attr}" => defaults.merge(index_analyzer: 'ac_edge_ngram')
+                         attr => {type: :text},
+                         "#{ac_mode_config[:base]}_#{attr}" => defaults.merge(analyzer: :ac_edge_ngram)
                      }
                    when :full
                      {
-                         attr => {type: 'string'},
-                         "#{ac_mode_config[:base]}_#{attr}" => defaults.merge(index_analyzer: 'ac_edge_ngram', boost: 3),
-                         "#{ac_mode_config[:full]}_#{attr}" => defaults.merge(index_analyzer: 'ac_edge_ngram_full')
+                         attr => {type: :text},
+                         "#{ac_mode_config[:base]}_#{attr}" => defaults.merge(analyzer: :ac_edge_ngram, boost: 3),
+                         "#{ac_mode_config[:full]}_#{attr}" => defaults.merge(analyzer: :ac_edge_ngram_full)
                      }
                  end
-        {type: 'multi_field', fields: fields}
+        {fields: fields}
       end
 
     end
