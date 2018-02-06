@@ -22,11 +22,11 @@ module ElasticsearchAutocomplete
   }
 
   class << self
-    def val_to_terms(val, zero=false)
+    def val_to_terms(val, zero = false, type = nil)
       return [] unless val
       return val if val.is_a?(Array)
-      return [true] if val == 'true'
-      return [false] if val == 'false'
+      return [true] if val == 'true' || (type == :boolean && val == '1')
+      return [false] if val == 'false' || (type == :boolean && val == '0')
       a = val.to_s.split(',').map(&:to_i)
       zero ? a : a.reject(&:zero?)
     end

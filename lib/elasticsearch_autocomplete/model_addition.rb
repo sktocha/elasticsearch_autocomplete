@@ -64,7 +64,7 @@ module ElasticsearchAutocomplete
           if query.size.zero?
             {match_all: {}}
           else
-            {multi_match: {query: query, fields: options[:search_fields]}}
+            {bool: {must: {multi_match: {query: query, fields: options[:search_fields]}}}}
           end
 
         sort = []
@@ -79,11 +79,11 @@ module ElasticsearchAutocomplete
 
         filter = []
         options[:with].to_a.compact.each do |k, v|
-          filter << {terms: {k => ElasticsearchAutocomplete.val_to_terms(v)}}
+          filter << {terms: {k => ElasticsearchAutocomplete.val_to_terms(v, false, detect_field_type(k))}}
         end
 
         options[:without].to_a.compact.each do |k, v|
-          filter << {not: {terms: {k => ElasticsearchAutocomplete.val_to_terms(v, true)}} }
+          filter << {not: {terms: {k => ElasticsearchAutocomplete.val_to_terms(v, true, detect_field_type(k))}} }
         end
 
         per_page = options[:per_page] || 50
@@ -91,11 +91,20 @@ module ElasticsearchAutocomplete
         # from = per_page.to_i * (page.to_i - 1)
 
         if filter.present?
-          query[:bool]= {filter: filter}
+          query[:bool] ||= {}
+          query[:bool][:filter] = filter
           query.delete(:match_all)
         end
 
         __elasticsearch__.search(query: query, sort: sort).paginate(page: page, size: per_page)
+      end
+
+      def detect_field_type(field)
+        field_mapping(field.to_sym).try(:[], :type) || field_mapping(field.to_s).try(:[], :type)
+      end
+
+      def field_mapping(field)
+        try(:mapping).try(:instance_variable_get, :@mapping).try(:[], field)
       end
 
       def define_ac_index(mode=:word)
