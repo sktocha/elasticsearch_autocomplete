@@ -100,11 +100,16 @@ module ElasticsearchAutocomplete
       end
 
       def detect_field_type(field)
-        field_mapping(field.to_sym).try(:[], :type) || field_mapping(field.to_s).try(:[], :type)
+        [field.to_sym, field.to_s].each do |formatted_field|
+          r = field_mapping(formatted_field)
+          type = r.try(:[], :type) || r.try(:type)
+          return type if type
+        end
       end
 
       def field_mapping(field)
-        try(:mapping).try(:instance_variable_get, :@mapping).try(:[], field)
+        try(:mapping).try(:instance_variable_get, :@mapping).try(:[], field) ||
+          try(:columns_hash).try(:[], field)
       end
 
       def define_ac_index(mode=:word)
