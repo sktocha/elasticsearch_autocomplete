@@ -105,6 +105,7 @@ module ElasticsearchAutocomplete
           type = r.try(:[], :type) || r.try(:type)
           return type if type
         end
+        nil
       end
 
       def field_mapping(field)
