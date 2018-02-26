@@ -83,7 +83,7 @@ module ElasticsearchAutocomplete
         end
 
         options[:without].to_a.compact.each do |k, v|
-          filter << {not: {terms: {k => ElasticsearchAutocomplete.val_to_terms(v, true, detect_field_type(k))}} }
+          filter << {bool: {must_not: {terms: {k => ElasticsearchAutocomplete.val_to_terms(v, true, detect_field_type(k))}}}}
         end
 
         per_page = options[:per_page] || 50
