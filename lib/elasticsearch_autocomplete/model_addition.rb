@@ -78,11 +78,14 @@ module ElasticsearchAutocomplete
         sort << {options[:order] => options[:sort_mode] || 'asc'} if options[:order].present?
 
         filter = []
-        options[:with].to_a.compact.each do |k, v|
+
+        options[:with].to_a.each do |k, v|
+          k, v = [k.keys.first, k.values.first] if k.is_a?(Hash)
           filter << {terms: {k => ElasticsearchAutocomplete.val_to_terms(v, false, detect_field_type(k))}}
         end
 
-        options[:without].to_a.compact.each do |k, v|
+        options[:without].to_a.each do |k, v|
+          k, v = [k.first, k.last] if k.is_a?(Array)
           filter << {bool: {must_not: {terms: {k => ElasticsearchAutocomplete.val_to_terms(v, true, detect_field_type(k))}}}}
         end
 
